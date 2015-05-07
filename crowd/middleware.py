@@ -21,11 +21,12 @@ class CookieMiddleware(object):
     cookie_secure = False
 
     def process_request(self, request):
+#        CrowdBackend =  CrowdBackend()
         self.cookie_config()
-        #username = None
+        username = None
         CRCN = CrowdBackend.__module__+"." + CrowdBackend.__name__
         crowd_token = request.COOKIES.get(self.cookie_name,None)
-        
+
         if not crowd_token:
             logger.debug("Should logout or am i local")
             sess = request.session.get('CrowdToken',None)
@@ -47,7 +48,6 @@ class CookieMiddleware(object):
         if username:
             logger.debug("Check if User already there")
             try:
-                print(User.objects.filter(username=username)[0])
                 user = User.objects.filter(username=username)[0]
                 user.backend = CRCN
             except:
@@ -73,8 +73,11 @@ class CookieMiddleware(object):
         logger.debug("Backend:%s" % backend)
         sess = request.session.get('CrowdToken',None)
         logger.debug("Session:%s" % sess)
-#         try:
-        if request.user.is_authenticated() and crowd_token is None and backend == CRCN:
+        try:
+            logged_in = request.user.is_authenticated()
+        except:
+            logged_in = False
+        if logged_in and crowd_token is None and backend == CRCN:
             logger.debug('Manual Login with Crowd (need to set cookie)')
 
             self.cookie_config()
@@ -100,7 +103,7 @@ class CookieMiddleware(object):
                 logout(request)
 
         else:
-            if (not(request.user.is_authenticated()) and
+            if (not(logged_in) and
                     crowd_token is not None):
                 self.invalidate_token(crowd_token)
                 CrowdBackend.destroy_cookie()
