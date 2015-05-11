@@ -11,7 +11,7 @@ my_timeout = 5
 logger = logging.getLogger(__name__)
 
 
-class CookieMiddleware(object):
+class CrowdMiddleware(object):
     """Authentication Middleware for OpenAM using a cookie with a token.
     Backend will get user.
     """
@@ -39,7 +39,7 @@ class CookieMiddleware(object):
             request.session['CrowdToken'] = crowd_token
             request.session.save()
             username,status_code_token = self.get_the_user_from_token(crowd_token)
-            if status_code_token == 400:
+            if not(status_code_token) :
                 request.session.flush()
             
         if request.user.is_authenticated():
@@ -48,18 +48,18 @@ class CookieMiddleware(object):
         if username:
             logger.debug("Check if User already there")
             try:
-                user = User.objects.filter(username=username)[0]
-                user.backend = CRCN
-            except:
+                user = User.objects.get(username=username)
+            except User.DoesNotExist:
                 logger.debug("User not yet imported")
-                crowd_config = CrowdBackend._get_crowd_config(self)
+                crowd_config = CrowdBackend._get_crowd_config()
                 user = CrowdBackend._create_user_from_crowd(
-                       CrowdBackend, username, crowd_config)
-                user.backend = CRCN
+                        username, crowd_config)
+            user.backend = CRCN
+
             request.user = user
         else:
             return
-        CrowdBackend.set_cookie(crowd_token)
+        #CrowdBackend.set_cookie(crowd_token,user)
         login(request, None)
 
     def process_response(self, request, response):
@@ -79,13 +79,12 @@ class CookieMiddleware(object):
             logged_in = False
         if logged_in and crowd_token is None and backend == CRCN:
             logger.debug('Manual Login with Crowd (need to set cookie)')
-
             self.cookie_config()
-            crowd_token = CrowdBackend.get_cookie()
+            crowd_token = request.user.crowdtoken
             username,status_code_token = self.get_the_user_from_token(crowd_token)
             
             logger.debug("only crowd:%s" % username)
-            if username and status_code_token !=400:
+            if username and status_code_token :
                 response.set_cookie(self.cookie_name,
                                     crowd_token,
                                     max_age=None,
@@ -96,7 +95,6 @@ class CookieMiddleware(object):
                 logger.debug(self.cookie_domain)
             else:
                 logout(request) #How would i Get here?
-            CrowdBackend.set_cookie(None)
                 
             if sess is not None:
                 logger.debug("Can i get here?")
@@ -106,19 +104,15 @@ class CookieMiddleware(object):
             if (not(logged_in) and
                     crowd_token is not None):
                 self.invalidate_token(crowd_token)
-                CrowdBackend.destroy_cookie()
                 self.cookie_config()
                 response.delete_cookie(self.cookie_name,
                                        domain=self.cookie_domain,
                                        path="/")
-#         except e:
-#             logger.debug("What was the exception %%", e)
-#             None
         return response
 
 
     def invalidate_token(self, token):
-        crowd_config = CrowdBackend._get_crowd_config(self)
+        crowd_config = CrowdBackend._get_crowd_config()
         if token:
             url = '%s/usermanagement/latest/session/%s.json' % (
                         crowd_config['url'], token, )
@@ -130,36 +124,36 @@ class CookieMiddleware(object):
                 None
 
     def get_the_user_from_token(self, token):
-        try:
-            crowd_config = CrowdBackend._get_crowd_config(self)
+#        try:
+            crowd_config = CrowdBackend._get_crowd_config()
             url = '%s/usermanagement/latest/session/%s.json' % (
                         crowd_config['url'], token, )
             r = requests.get(url, auth=(crowd_config['app_name'],
-                             crowd_config['password']),timeout=my_timeout)
+                             crowd_config['password']))#,timeout=my_timeout)
             if r.status_code == 200 or r.status_code == 201 :
                 content_parsed = r.json()
-                return content_parsed['user']['name'],201
+                return content_parsed['user']['name'],True
             else:
-                return None,400
-        except:
-            logger.error("Can not validate the Token")
-            return None,500
+                return None,False
+ #        except:
+#             logger.error("Can not validate the Token")
+#             return None,False
 
     def cookie_config(self):
         if self.cookie_configd:
             return
         else:
-            try: 
-                crowd_config = CrowdBackend._get_crowd_config(self)
-                url = '%s/usermanagement/latest/config/cookie.json' % (
-                        crowd_config['url'],)
-                r = requests.get(url, auth=(crowd_config['app_name'],
-                                 crowd_config['password']),timeout=my_timeout)
-                content_parsed = r.json()
-                self.cookie_name = content_parsed['name']
-                self.cookie_domain = content_parsed['domain']
-                self.cookie_secure = content_parsed['secure']
-                self.cookie_configd = True
-            except:
-                logger.error('Can not get Crowd Cookie Config')
-                return
+#            try: 
+            crowd_config = CrowdBackend._get_crowd_config()
+            url = '%s/usermanagement/latest/config/cookie.json' % (
+                    crowd_config['url'],)
+            r = requests.get(url, auth=(crowd_config['app_name'],
+                             crowd_config['password']),timeout=my_timeout)
+            content_parsed = r.json()
+            self.cookie_name = content_parsed['name']
+            self.cookie_domain = content_parsed['domain']
+            self.cookie_secure = content_parsed['secure']
+            self.cookie_configd = True
+ #            except:
+#                 logger.error('Can not get Crowd Cookie Config')
+#                 return
